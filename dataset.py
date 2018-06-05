@@ -26,7 +26,7 @@ def CIFAR100(path):
   file_test = path + '/test'
   
   with open(file_train, 'rb') as fo:
-    dict = pickle.load(fo, encoding='bytes')
+    dict = pickle.load(fo)
     tools = cdll.LoadLibrary('./libdatasettools.so')
     
     n, d = dict[b'data'].shape
@@ -50,18 +50,18 @@ def CIFAR100(path):
     labels = np.array(dict[b'fine_labels'])
     coarse_labels = np.array(dict[b'coarse_labels'])
     
-    t_begin = time.start()
+    t_begin = time.time()
     tools.NCHW2NHWC(samples_ptr, data_ptr, c_int(n), c_int(h), c_int(w), c_int(c))
-    t_end = time.stop()
+    t_end = time.time()
     print('clib costs: ' + str(t_end-t_begin) + ' seconds.')
     
-    t_begin = time.start()
+    t_begin = time.time()
     for i in range(n):
       for j in range(h):
         for k in range(w):
           for l in range(c):
             samples[i,j,k,l] = dict[b'data'][i, l*1024+j*32+k]
-    t_end = time.stop()
+    t_end = time.time()
     print('python costs: ' + str(t_end-t_begin) + ' seconds.')
     
     return samples, labels, coarse_labels
