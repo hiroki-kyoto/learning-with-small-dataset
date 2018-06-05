@@ -1,0 +1,1 @@
+gcc -shared -fPIC -o libdatasettools.so dataset_tools.c
