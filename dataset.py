@@ -68,6 +68,6 @@ def CIFAR100(path):
 
 def main():
   ds = Dataset()
-  ds.load(CIFAR100, './cifar-100-python')
+  ds.load(CIFAR100, '../cifar-100-python')
 
 main()
