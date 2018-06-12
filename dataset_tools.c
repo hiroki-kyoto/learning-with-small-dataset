@@ -6,7 +6,14 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-void NCHW2NHWC(float * samples_ptr, __uint8_t * samples_bytes, int n, int h, int w, int c){
+void NCHW2NHWC(
+  float * samples_ptr, 
+  __uint8_t * samples_bytes, 
+  int n, 
+  int h, 
+  int w, 
+  int c
+){
 	int i, j, k, l;
 	int t_strides[3], s_strides[3];
 	t_strides[0] = h*w*c;

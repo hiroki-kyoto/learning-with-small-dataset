@@ -138,8 +138,8 @@ def main():
     #im = pi.fromarray((x[0]*255).astype(np.uint8), mode="RGB")
     #im.show()
   x,y = ds.test()
-  #im = pi.fromarray((x[2]*255).astype(np.uint8), mode="RGB")
-  #im.show()
+  im = pi.fromarray((x[2]*255).astype(np.uint8), mode="RGB")
+  im.show()
   #print(str(y[2]))
 
 main()
