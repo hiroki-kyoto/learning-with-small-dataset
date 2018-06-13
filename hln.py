@@ -1,10 +1,12 @@
 ''' HLN: Hybrid Learning Network
-             --->[AE#1]--->x      --->[AE#2]--->x
-            /                    /
-    X-->[Conv#1]------------>[Conv#2]--------------> ...
-            \                    \
-             --->[ASR]--->0       --->[ASR]--->0
-    Where, AE is Auto Encoder, ASR is Activation Sparsity Regularization
+    X<---[Conv#r1]<-----------[Conv#r2]<------------- ... ----[Conv#rN]-------
+            /(shake)            /(shake)                                     /(shake)
+    X--->[Conv#1]------------>[Conv#2]--------------> ... --->[Conv#N]-->classifier
+            \                    \                               \ 
+             --->[ASR]--->0       --->[ASR]--->0                  --->[ASR]--->0
+    Where, Conv is Convolution Op, 
+    ASR is Activation Sparsity Regularization
+    Using shake-shake regularization, too.
 '''
 
 import numpy as np
@@ -25,6 +27,7 @@ class HybridLearningNet(object):
         self.ops['uerr'] = None
         self.ops['tran_acc'] = None
         self.ops['sparsity'] = None
+        self.shake_coef = None
         # construct network
         for i in xrange(len(dims)):
             dims[i]
@@ -52,5 +55,9 @@ class HybridLearningNet(object):
                     self.ops['sparsity']], 
                 feed_dict=[self.x:x, self.y:y])
         if self.counter%self.print_every_n_batch==0:
-            print('#' + str(self.counter) + ' serr:' + str(serr) + ' uerr:' + str(uerr) + ' train_acc:' + str(train_acc) + ' sparsity:' + str(sparsity))
+            print('#' + str(self.counter) + 
+                    ' serr:' + str(serr) + 
+                    ' uerr:' + str(uerr) + 
+                    ' train_acc:' + str(train_acc) + 
+                    ' sparsity:' + str(sparsity))
             pass
