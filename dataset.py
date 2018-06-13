@@ -5,6 +5,7 @@ import numpy as np
 from ctypes import *
 import time
 from PIL import Image as pi
+import matplotlib.pyplot as plt
 
 class Dataset(object):
   '''
@@ -138,8 +139,11 @@ def main():
     #im = pi.fromarray((x[0]*255).astype(np.uint8), mode="RGB")
     #im.show()
   x,y = ds.test()
-  im = pi.fromarray((x[2]*255).astype(np.uint8), mode="RGB")
-  im.show()
+  #im = pi.fromarray((x[2]*255).astype(np.uint8), mode="RGB")
+  #im.show()
+  plt.imshow(x[np.random.randint(len(x))])
+  plt.show()
   #print(str(y[2]))
 
 main()
+
