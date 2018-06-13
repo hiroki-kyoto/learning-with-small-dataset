@@ -130,9 +130,66 @@ def CIFAR100(path):
           test_labels,
           test_coarse_labels)
 
+def CIFAR10(path):
+  num_batches = 5
+  file_train = [path + '/train_batch_'+str(i) 
+          for i in range(1,num_batches+1,1)]
+  file_test = path + '/test'
+  tools = cdll.LoadLibrary('./libdatasettools.so')
+  
+  train_samples = []
+  train_labels = []
+
+  for i in range(5):
+      with open(file_train[i], 'rb') as fo:
+        dict = pickle.load(fo)
+        n, d = dict[b'data'].shape
+        train_samples.append(dict[b'data'].reshape(n*d))
+        # labels
+        train_labels.append(np.array(dict[b'labels']))
+  
+  train_samples = np.stack(train_samples, axis=0)
+  train_samples = train_samples.reshape(50000,3,32,32)
+  train_samples = train_samples.transpose([0,2,3,1])
+  train_labels = np.stack(train_labels, axis=0)
+  train_labels = train_labels.reshape([50000])
+  
+  with open(file_test, 'rb') as fo:
+    dict = pickle.load(fo)
+    n, d = dict[b'data'].shape
+    h = 32
+    w = 32
+    c = 3
+    assert(d==h*w*c)
+    test_samples = np.zeros([n, h, w, c], dtype=np.float32)
+    test_labels = np.zeros([n], dtype=np.float32)
+    test_coarse_labels = np.zeros([n], dtype=np.float32)
+    data = dict[b'data'];
+    
+    if not test_samples.flags['C_CONTIGUOUS']:
+      test_samples = np.ascontiguous(test_samples, dtype=test_samples.dtype)
+    samples_ptr = cast(test_samples.ctypes.data, POINTER(c_float))
+    
+    if not data.flags['C_CONTIGUOUS']:
+      data = np.ascontiguous(data, dtype=data.dtype)
+    data_ptr = cast(data.ctypes.data, POINTER(c_uint8))
+    
+    test_labels = np.array(dict[b'fine_labels'])
+    test_coarse_labels = np.array(dict[b'coarse_labels'])
+    tools.NCHW2NHWC(samples_ptr, data_ptr, c_int(n), c_int(h), c_int(w), c_int(c))
+
+  return (train_samples, 
+          train_labels, 
+          train_coarse_labels,
+          test_samples,
+          test_labels,
+          test_coarse_labels)
+
+
+
 def main():
   ds = Dataset()
-  ds.load(CIFAR100, '../cifar-100-python')
+  ds.load(CIFAR100, '../cifar-10-python')
   ds.set_batch_size(8)
   for i in xrange(10):
     x,y = ds.train_batch()

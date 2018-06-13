@@ -14,7 +14,12 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 
 class HybridLearningNet(object):
-    def __init__(self, dims, print_every_n_batch, learning_rate):
+    def __init__(
+            self, 
+            dims, 
+            print_every_n_batch, 
+            learning_rate
+            ):
         assert(len(dims)>0)
         self.counter = 0
         self.print_every_n_batch = print_every_n_batch
