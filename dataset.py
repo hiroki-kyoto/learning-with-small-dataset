@@ -28,10 +28,8 @@ class Dataset(object):
   def load(self, ds_open_fn, ds_path):
     (self.train_samples, 
     self.train_labels, 
-    self.train_coarse_labels,
     self.test_samples,
-    self.test_labels,
-    self.test_coarse_labels) = ds_open_fn(ds_path)
+    self.test_labels) = ds_open_fn(ds_path)
     # prepare a random sequence for generating training batches
     self.rand_seq = np.random.randint(0, len(self.train_labels), self.RAND_SEQ_LENGTH)
     self.seq_id = 0
@@ -84,7 +82,6 @@ def CIFAR100(path):
     assert(d==h*w*c)
     train_samples = np.zeros([n, h, w, c], dtype=np.float32)
     train_labels = np.zeros([n], dtype=np.float32)
-    train_coarse_labels = np.zeros([n], dtype=np.float32)
     data = dict[b'data'];
     
     if not train_samples.flags['C_CONTIGUOUS']:
@@ -96,7 +93,7 @@ def CIFAR100(path):
     data_ptr = cast(data.ctypes.data, POINTER(c_uint8))
     
     train_labels = np.array(dict[b'fine_labels'])
-    train_coarse_labels = np.array(dict[b'coarse_labels'])
+
     tools.NCHW2NHWC(samples_ptr, data_ptr, c_int(n), c_int(h), c_int(w), c_int(c))
     
   with open(file_test, 'rb') as fo:
@@ -108,7 +105,6 @@ def CIFAR100(path):
     assert(d==h*w*c)
     test_samples = np.zeros([n, h, w, c], dtype=np.float32)
     test_labels = np.zeros([n], dtype=np.float32)
-    test_coarse_labels = np.zeros([n], dtype=np.float32)
     data = dict[b'data'];
     
     if not test_samples.flags['C_CONTIGUOUS']:
@@ -120,21 +116,19 @@ def CIFAR100(path):
     data_ptr = cast(data.ctypes.data, POINTER(c_uint8))
     
     test_labels = np.array(dict[b'fine_labels'])
-    test_coarse_labels = np.array(dict[b'coarse_labels'])
+
     tools.NCHW2NHWC(samples_ptr, data_ptr, c_int(n), c_int(h), c_int(w), c_int(c))
 
   return (train_samples, 
           train_labels, 
-          train_coarse_labels,
           test_samples,
-          test_labels,
-          test_coarse_labels)
+          test_labels)
 
 def CIFAR10(path):
   num_batches = 5
-  file_train = [path + '/train_batch_'+str(i) 
+  file_train = [path + '/data_batch_'+str(i) 
           for i in range(1,num_batches+1,1)]
-  file_test = path + '/test'
+  file_test = path + '/test_batch'
   tools = cdll.LoadLibrary('./libdatasettools.so')
   
   train_samples = []
@@ -150,56 +144,38 @@ def CIFAR10(path):
   
   train_samples = np.stack(train_samples, axis=0)
   train_samples = train_samples.reshape(50000,3,32,32)
-  train_samples = train_samples.transpose([0,2,3,1])
+  train_samples = train_samples.transpose([0,2,3,1])/255.0
   train_labels = np.stack(train_labels, axis=0)
   train_labels = train_labels.reshape([50000])
   
   with open(file_test, 'rb') as fo:
     dict = pickle.load(fo)
     n, d = dict[b'data'].shape
-    h = 32
-    w = 32
-    c = 3
-    assert(d==h*w*c)
-    test_samples = np.zeros([n, h, w, c], dtype=np.float32)
-    test_labels = np.zeros([n], dtype=np.float32)
-    test_coarse_labels = np.zeros([n], dtype=np.float32)
-    data = dict[b'data'];
+    test_samples = dict[b'data'].reshape([10000, 3, 32, 32])
+    test_samples = test_samples.transpose([0,2,3,1])/255.0
+    test_labels = np.array(dict[b'labels'])
     
-    if not test_samples.flags['C_CONTIGUOUS']:
-      test_samples = np.ascontiguous(test_samples, dtype=test_samples.dtype)
-    samples_ptr = cast(test_samples.ctypes.data, POINTER(c_float))
-    
-    if not data.flags['C_CONTIGUOUS']:
-      data = np.ascontiguous(data, dtype=data.dtype)
-    data_ptr = cast(data.ctypes.data, POINTER(c_uint8))
-    
-    test_labels = np.array(dict[b'fine_labels'])
-    test_coarse_labels = np.array(dict[b'coarse_labels'])
-    tools.NCHW2NHWC(samples_ptr, data_ptr, c_int(n), c_int(h), c_int(w), c_int(c))
-
   return (train_samples, 
           train_labels, 
-          train_coarse_labels,
           test_samples,
-          test_labels,
-          test_coarse_labels)
+          test_labels)
 
 
 
 def main():
   ds = Dataset()
-  ds.load(CIFAR100, '../cifar-10-python')
+  #ds.load(CIFAR100, '../cifar-100-python/')
+  ds.load(CIFAR10, '../cifar-10-batches-py/')
   ds.set_batch_size(8)
-  for i in xrange(10):
+  for i in xrange(3):
     x,y = ds.train_batch()
-    #im = pi.fromarray((x[0]*255).astype(np.uint8), mode="RGB")
-    #im.show()
+    #plt.imshow(x[np.random.randint(len(x))])
+    #plt.show()
   x,y = ds.test()
-  #im = pi.fromarray((x[2]*255).astype(np.uint8), mode="RGB")
-  #im.show()
-  plt.imshow(x[np.random.randint(len(x))])
-  plt.show()
+  im = pi.fromarray((x[np.random.randint(len(x))]*255).astype(np.uint8), mode="RGB")
+  im.show()
+  #plt.imshow(x[np.random.randint(len(x))])
+  #plt.show()
   #print(str(y[2]))
 
 main()
