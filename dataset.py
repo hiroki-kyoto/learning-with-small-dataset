@@ -160,8 +160,7 @@ def CIFAR10(path):
           test_samples,
           test_labels)
 
-
-
+'''
 def main():
   ds = Dataset()
   #ds.load(CIFAR100, '../cifar-100-python/')
@@ -179,4 +178,6 @@ def main():
   #print(str(y[2]))
 
 main()
+'''
+
 
