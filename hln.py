@@ -20,7 +20,12 @@ def sparsity_regularizer(x):
 
 def correlation_regularizer(x):
     x_std = tf.nn.l2_normalize(x, axis=[0,1,2])
-    rand_w = tf.random_uniform([x.shape.as_list()[3]], minval=0, maxval=1, dtype=tf.float32)-0.5
+    rand_w = tf.random_uniform(
+        [x.shape.as_list()[3]], 
+        minval=0, 
+        maxval=1, 
+        dtype=tf.float32
+        )-0.5
     w_std = tf.nn.l2_normalize(w, axis=[0])
     return 1 - tf.nn.l2_loss(x - (x_std * rand_w))
     
@@ -72,8 +77,9 @@ class HybridLearningNet(object):
         self.ops['sparsity'] = None
         self.shake_coef = None
         # construct network
+        self.x = tf.placeholder()
         for i in xrange(len(dims)):
-            tf.layers.dims[i]
+            tf_build_recognition_layer()
         pass
 
     def save(self, path):
