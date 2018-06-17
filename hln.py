@@ -36,7 +36,7 @@ def mixed_kernel_regularizer(x):
 
 # Generate new layer with given input layer and settings in tensorflow graph
 # returning layer handler
-def tf_build_recognition_layer(inputs, filters, ksizes, rates):
+def tf_build_recognitive_layer(inputs, filters, ksizes, rates):
     return tf.layers.conv2d(
         inputs=inputs,
         filters=filters,
@@ -77,17 +77,18 @@ class HybridLearningNet(object):
         self.print_every_n_batch = print_every_n_batch
         self.learning_rate = learning_rate
         self.ops = dict()
-        self.ops['regconv'] = []
+        self.ops['recconv'] = []
         self.ops['genconv'] = []
-        self.ops['full'] = []
         self.ops['opt'] = None
         self.ops['serr'] = None
         self.ops['uerr'] = None
         self.ops['tran_acc'] = None
-        self.ops['sparsity'] = None
         self.shake_coef = None
         self.batch_size = batch_size
         self.graph = tf.Graph()
+        self.x = None
+        self.y = None
+        self.recon_x = None # reconstructed x
         
         # construct network
         with self.graph.as_default():
@@ -97,24 +98,25 @@ class HybridLearningNet(object):
             self.x = tf.placeholder(
                 tf.float32,
                 (batch_size, x_dim[0], x_dim[1], x_dim[2]))
+            # recognitive layers
             for i in xrange(len(dims)):
                 assert(len(dims[i])==3) # num_filters, kernel_size, dilated_rate
                 if i==0:
-                    self.ops['regconv'].append(
-                        tf_build_recognition_layer(
+                    self.ops['recconv'].append(
+                        tf_build_recognitive_layer(
                             self.x, 
                             dims[i][0], 
                             dims[i][1], 
                             dims[i][2]))
                 else:
-                    self.ops['regconv'].append(
-                        tf_build_recognition_layer(
-                            self.ops['regconv'][-1], 
+                    self.ops['recconv'].append(
+                        tf_build_recognitive_layer(
+                            self.ops['recconv'][-1], 
                             dims[i][0], 
                             dims[i][1], 
                             dims[i][2]))
             assert(type(y_dim)==int)
-            self.y = tf.reshape(self.ops['regconv'][-1], [batch_size, -1])
+            self.y = tf.reshape(self.ops['recconv'][-1], [batch_size, -1])
             self.y = tf.layers.dense(
                 inputs = self.y,
                 units = y_dim,
@@ -122,14 +124,43 @@ class HybridLearningNet(object):
                 use_bias=True,
                 kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
                 bias_initializer=tf.zeros_initializer(),
-                kernel_regularizer=None,
-                bias_regularizer=None,
+                kernel_regularizer=tf.nn.l2_loss,
+                bias_regularizer=tf.nn.l2_loss,
                 activity_regularizer=None,
                 kernel_constraint=None,
                 bias_constraint=None,
                 trainable=True,
                 name=None,
                 reuse=None)
+            # generative layers: 
+            # reverse the convolutional part of recognition graph
+            self.shake_coef = tf.random_uniform([len(dims)])
+            for i in xrange(len(dims)-1):
+                i = len(dims) - i - 2
+                assert(len(dims[i])==3) # num_filters, kernel_size, dilated_rate
+                if i==len(dims)-2:
+                    self.ops['genconv'].append(
+                        tf_build_generative_layer(
+                            self.shake_coef[i+1]*self.ops['recconv'][i+1], 
+                            dims[i][0], 
+                            dims[i][1], 
+                            dims[i][2]))
+                else:
+                    self.ops['genconv'].append(
+                        tf_build_generative_layer(
+                            self.shake_coef[i+1]*self.ops['genconv'][-1] + 
+                                (1-self.shake_coef[i+1])*self.ops['recconv'][i+1], 
+                            dims[i][0], 
+                            dims[i][1], 
+                            dims[i][2])) 
+            # finally reconstruct the input
+            self.ops['genconv'].append(
+                tf_build_generative_layer(
+                    self.shake_coef[0]*self.ops['genconv'][-1] + 
+                        (1-self.shake_coef[0])*self.ops['recconv'][0],
+                    self.x.shape[1],
+                    self.x.shape[2],
+                    self.x.shape[3]) #####################
             # saver
             self.saver = tf.train.Saver()
             self.sess.run(tf.global_variables_initializer())
