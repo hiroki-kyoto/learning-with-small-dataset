@@ -23,6 +23,7 @@ USE_CORRELATION_REGULARIZER = 1
 USE_SHAKE_EVEN = 1
 USE_SOFT_LOSS = 1
 USE_HYBRID_LEARNING = 1
+USE_DIFF_MAJOR_LOSS = 1
 ################################################
 
 def sparsity_regularizer(x):
@@ -118,9 +119,28 @@ def min_max_normalize(x):
     x_scale = tf.maximum(x_max-x_min, 1.0)
     return (x - tf.reshape(x_min,[_shape[0],1]))/tf.reshape(x_scale,[_shape[0],1])
 
-def normalized_soft_loss(x):
-    
-    pass
+def normalized_soft_loss(y, labels, name):
+    y = min_max_normalize(y)
+    depth = y.shape.as_list()[-1]
+    pred = tf.argmax(y, axis=1)
+    onehot = tf.one_hot(
+        indices=pred, 
+        depth=depth,
+        on_value=1,
+        off_value=0)
+    onehot_truth = tf.one_hot(
+        indices=labels, 
+        depth=depth,
+        on_value=1,
+        off_value=0)
+    stop_grad_op = tf.stop_gradient(onehot)
+    reward = onehot_truth*(1 - y)
+    with tf.control_dependencies([stop_grad_op]):
+        punishment = onehot * y
+    return tf.nn.l2_loss(reward + punishment, name=name)
+
+def diff_major_loss(x):
+    pass    
     
 def reconstruct_loss(x):
     pass
@@ -245,15 +265,16 @@ class HybridLearningNet(object):
                     self.ops['loss'] += regs[i]*reg_w[i]
             # obtain supervised loss
             if USE_SOFT_LOSS:
-                self.ops['serr'] = None
-                pass
+                self.ops['serr'] = normalized_soft_loss(
+                    self.y, 
+                    self.groundtruth_labels, 
+                    name='serr')
             else:
                 # use cross entropy loss
                 self.ops['serr'] = tf.nn.sparse_softmax_cross_entropy_with_logits(
                     labels=self.groundtruth_labels,
                     logits=self.y,
                     name='serr')
-                pass
             # obtain unsupervised loss
             if USE_HYBRID_LEARNING:
                 # add unsupervised loss to total loss
