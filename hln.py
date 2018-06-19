@@ -61,7 +61,8 @@ def correlation_regularizer(x):
         return 0
 
 def mixed_kernel_regularizer(x):
-    return tf.add(0.5*norm_regularizer(x), 0.5*correlation_regularizer(x))
+    w = tf.random_uniform([1])
+    return tf.add(w[0]*norm_regularizer(x), (1-w[0])*correlation_regularizer(x))
 
 # Generate new layer with given input layer and settings in tensorflow graph
 # returning layer handler
@@ -88,7 +89,7 @@ def tf_build_recognitive_layer(inputs, filters, ksizes, rates):
         reuse=None
     )
     
-def tf_build_generative_layer(inputs, filters, ksizes, rates):
+def tf_build_generative_layer(inputs, filters, ksizes, rates, activation):
     return tf.layers.conv2d(
         inputs=inputs,
         filters=filters,
@@ -97,7 +98,7 @@ def tf_build_generative_layer(inputs, filters, ksizes, rates):
         padding='same',
         data_format='channels_last',
         dilation_rate=rates,
-        activation=tf.nn.relu,
+        activation=activation,
         use_bias=True,
         kernel_initializer=tf.truncated_normal_initializer(stddev=0.01),
         bias_initializer=tf.zeros_initializer(),
@@ -139,10 +140,7 @@ def normalized_soft_loss(y, labels, name):
         punishment = onehot * y
     return tf.nn.l2_loss(reward + punishment, name=name)
 
-def diff_major_loss(x):
-    pass    
-    
-def reconstruct_loss(x):
+def diff_major_loss(recon_x, x):
     pass
     
 class HybridLearningNet(object):
@@ -167,6 +165,7 @@ class HybridLearningNet(object):
         self.ops['uerr'] = None
         self.ops['tran_acc'] = None
         self.ops['loss'] = None
+        self.ops['switch'] = None
         self.shake_coef = None
         self.batch_size = batch_size
         self.graph = tf.Graph()
@@ -235,7 +234,8 @@ class HybridLearningNet(object):
                             self.shake_coef[i+1]*self.ops['recconv'][i+1], 
                             dims[i][0], 
                             dims[i+1][1], 
-                            dims[i+1][2]))
+                            dims[i+1][2],
+                            tf.nn.relu))
                 else:
                     self.ops['genconv'].append(
                         tf_build_generative_layer(
@@ -243,7 +243,8 @@ class HybridLearningNet(object):
                                 (1-self.shake_coef[i+1])*self.ops['recconv'][i+1], 
                             dims[i][0], 
                             dims[i+1][1], 
-                            dims[i+1][2])) 
+                            dims[i+1][2],
+                            tf.nn.sigmoid))
             # finally reconstruct the input
             self.recon_x = tf_build_generative_layer(
                     self.shake_coef[0]*self.ops['genconv'][-1] + 
@@ -254,14 +255,12 @@ class HybridLearningNet(object):
             assert(self.recon_x.shape.as_list()==self.x.shape)
             # collect regularizers
             regs = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
+            self.ops['loss'] = tf.constant(0, tf.float32)
             if USE_SHAKE_EVEN:
                 reg_w = tf.random_uniform([len(regs)])*0.5
             else:
                 reg_w = np.ones([len(regs)])
             for i in xrange(len(regs)):
-                if i==0:
-                    self.ops['loss'] = regs[i]*reg_w[i]
-                else:
                     self.ops['loss'] += regs[i]*reg_w[i]
             # obtain supervised loss
             if USE_SOFT_LOSS:
@@ -275,13 +274,21 @@ class HybridLearningNet(object):
                     labels=self.groundtruth_labels,
                     logits=self.y,
                     name='serr')
+            # This switch op will control error propagation, enabling 
+            # unsupervised learning with unlabeled samples.
+            self.ops['switch'] = tf.constant(1, tf.float32)
+            self.ops['loss'] += self.ops['switch']*self.ops['serr']
             # obtain unsupervised loss
             if USE_HYBRID_LEARNING:
                 # add unsupervised loss to total loss
-                pass
-            
+                if USE_DIFF_MAJOR_LOSS:
+                    self.ops['uerr'] = diff_major_loss(self.recon_x, self.x)
+                else:
+                    self.ops['uerr'] = norm_regularizer(self.recon_x - self.x)
+                self.ops['loss'] += self.ops['uerr']
             # build optimizer for model
-            self.ops['opt'] = None
+            self.ops['opt'] = tf.train.GradientDescentOptimizer(learning_rate)
+            self.ops['opt'] = self.ops['opt'].minimize(self.ops['loss'])
             # training accuracy
             scores = tf.equal(self.labels, self.groundtruth_labels)
             self.ops['train_acc'] = tf.reduce_mean(tf.cast(scores, tf.float32))
@@ -304,7 +311,7 @@ class HybridLearningNet(object):
         assert(x.shape==self.x.shape)
         assert(y.shape==self.y.shape.as_list())
         self.counter += 1
-        _, serr, uerr, train_acc = self.sess.run(
+        loss, serr, uerr, train_acc = self.sess.run(
                 [self.ops['opt'], 
                     self.ops['serr'],
                     self.ops['uerr'], 
@@ -312,6 +319,7 @@ class HybridLearningNet(object):
                 feed_dict={self.x:x, self.y:y})
         if self.counter%self.print_every_n_batch==0:
             print('#' + str(self.counter) + 
+                    ' loss:' + str(loss) +
                     ' serr:' + str(serr) + 
                     ' uerr:' + str(uerr) + 
                     ' train_acc:' + str(train_acc))
