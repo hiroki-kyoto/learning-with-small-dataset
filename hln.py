@@ -56,7 +56,7 @@ def correlation_regularizer(x):
         w = w * mask
         w_std = tf.nn.l2_normalize(w, axis=[0])
         r = tf.matmul(x_std, w_std)
-        return tf.reduce_mean(tf.reduce_sum(x_std * r, axis=[0]))
+        return tf.reduce_mean(tf.abs(tf.reduce_sum(x_std * r, axis=[0])))
     else:
         return 0
 
@@ -127,21 +127,36 @@ def normalized_soft_loss(y, labels, name):
     onehot = tf.one_hot(
         indices=pred, 
         depth=depth,
-        on_value=1,
-        off_value=0)
+        on_value=1.0,
+        off_value=0.0)
     onehot_truth = tf.one_hot(
         indices=labels, 
         depth=depth,
-        on_value=1,
-        off_value=0)
+        on_value=1.0,
+        off_value=0.0)
     stop_grad_op = tf.stop_gradient(onehot)
     reward = onehot_truth*(1 - y)
     with tf.control_dependencies([stop_grad_op]):
         punishment = onehot * y
     return tf.nn.l2_loss(reward + punishment, name=name)
 
+def normalized_relu_activation(x):
+    assert(len(x.shape)==4)
+    _shape = x.shape
+    x = tf.nn.relu(x)
+    x = tf.reshape(x, [_shape[0], _shape[1]*_shape[2]*_shape[3]])
+    x = min_max_normalize(x)
+    return tf.reshape(x, [_shape[0], _shape[1], _shape[2], _shape[3]])
+
 def diff_major_loss(recon_x, x):
-    pass
+    assert(recon_x.shape.as_list()==x.shape.as_list())
+    _shape = x.shape.as_list()
+    w = tf.random_uniform([_shape[-1]])
+    recon_x = tf.reshape(recon_x, [_shape[0],_shape[1]*_shape[2], _shape[3]])
+    x = tf.reshape(x, [_shape[0],_shape[1]*_shape[2], _shape[3]])
+    recon_x = min_max_normalize(tf.reduce_sum(recon_x*w, axis=2))
+    x = min_max_normalize(tf.reduce_sum(x*w, axis=2))
+    return norm_regularizer(x-recon_x)
     
 class HybridLearningNet(object):
     def __init__(
@@ -174,6 +189,7 @@ class HybridLearningNet(object):
         self.labels = None
         self.groundtruth_labels = None
         self.recon_x = None # reconstructed x
+        self.save_path = None
         
         # construct network
         with self.graph.as_default():
@@ -244,14 +260,15 @@ class HybridLearningNet(object):
                             dims[i][0], 
                             dims[i+1][1], 
                             dims[i+1][2],
-                            tf.nn.sigmoid))
+                            tf.nn.relu))
             # finally reconstruct the input
             self.recon_x = tf_build_generative_layer(
                     self.shake_coef[0]*self.ops['genconv'][-1] + 
                         (1-self.shake_coef[0])*self.ops['recconv'][0],
                     self.x.shape[3],
                     dims[0][1],
-                    dims[0][2])
+                    dims[0][2],
+                    normalized_relu_activation)
             assert(self.recon_x.shape.as_list()==self.x.shape)
             # collect regularizers
             regs = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
@@ -297,11 +314,11 @@ class HybridLearningNet(object):
             self.sess.run(tf.global_variables_initializer())
 
     def save(self, path):
-        
-        pass
+        self.save_path = path
 
     def restore(self, path):
-        pass
+        with self.graph.as_default():
+            self.saver.restore(self.sess, path)
 
     def run(self, x):
         assert(x.shape==self.x.shape)
@@ -309,20 +326,23 @@ class HybridLearningNet(object):
 
     def train(self, x, y):
         assert(x.shape==self.x.shape)
-        assert(y.shape==self.y.shape.as_list())
+        assert(y.shape==self.groundtruth_labels.shape)
         self.counter += 1
-        loss, serr, uerr, train_acc = self.sess.run(
+        _, loss, serr, uerr, train_acc = self.sess.run(
                 [self.ops['opt'], 
+                    self.ops['loss'],
                     self.ops['serr'],
                     self.ops['uerr'], 
                     self.ops['train_acc']], 
-                feed_dict={self.x:x, self.y:y})
+                feed_dict={self.x:x, self.groundtruth_labels:y})
         if self.counter%self.print_every_n_batch==0:
             print('#' + str(self.counter) + 
                     ' loss:' + str(loss) +
                     ' serr:' + str(serr) + 
                     ' uerr:' + str(uerr) + 
-                    ' train_acc:' + str(train_acc))
+                    ' train_acc:' + str(train_acc) +
+                    ' saving model to ' + self.save_path)
+            self.saver.save(self.sess, self.save_path)
 
 def main():
     batch_size = 8
@@ -342,11 +362,16 @@ def main():
     
     #np.random.seed(8603)
     #print net.run(np.random.uniform(0, 1, [8, 32, 32, 3]))
-    t_beg = time.clock()
+    '''t_beg = time.clock()
     for i in xrange(1000):
         x, y = ds.train_batch()
         print 'expected: '+ str(y) + ' predicted: ' + str(net.run(x))
     t_end = time.clock()
     print str(batch_size*1000.0/(t_end-t_beg)) + ' FPS.'
+    '''
+    net.save('../model/')
+    for i in xrange(1000):
+        x, y = ds.train_batch()
+        net.train(x, y)
 main()
 
