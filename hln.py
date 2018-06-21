@@ -165,12 +165,14 @@ class HybridLearningNet(object):
         y_dim, 
         dims, 
         print_every_n_batch, 
+        save_every_n_batch,
         learning_rate, 
         batch_size):
         
         assert(len(dims)>0)
         self.counter = 0
         self.print_every_n_batch = print_every_n_batch
+        self.save_every_n_batch = save_every_n_batch
         self.learning_rate = learning_rate
         self.ops = dict()
         self.ops['recconv'] = []
@@ -319,30 +321,48 @@ class HybridLearningNet(object):
     def restore(self, path):
         with self.graph.as_default():
             self.saver.restore(self.sess, path)
+            
+    def finish(self):
+        self.saver.save(self.sess, self.save_path)
+        self.sess.close()
 
-    def run(self, x):
+    def predict_label(self, x):
         assert(x.shape==self.x.shape)
         return self.sess.run(self.labels, feed_dict={self.x:x})
-
-    def train(self, x, y):
+        
+    def reconstruct_image(self, x):
         assert(x.shape==self.x.shape)
-        assert(y.shape==self.groundtruth_labels.shape)
+        return self.sess.run(self.recon_x, feed_dict={self.x:x})
+
+    def train(self, x, y=[]):
+        assert(x.shape==self.x.shape)
         self.counter += 1
-        _, loss, serr, uerr, train_acc = self.sess.run(
+        if len(y)>0:
+            assert(y.shape==self.groundtruth_labels.shape)
+            _, loss, serr, uerr, train_acc = self.sess.run(
                 [self.ops['opt'], 
                     self.ops['loss'],
                     self.ops['serr'],
                     self.ops['uerr'], 
                     self.ops['train_acc']], 
                 feed_dict={self.x:x, self.groundtruth_labels:y})
+        else:
+            _, loss, uerr, train_acc = self.sess.run(
+                [self.ops['opt'], 
+                    self.ops['loss'],
+                    self.ops['uerr'], 
+                    self.ops['train_acc']], 
+                feed_dict={self.x:x, self.groundtruth_labels:0, self.ops['switch']:0})
+            serr = None
         if self.counter%self.print_every_n_batch==0:
             print('#' + str(self.counter) + 
                     ' loss:' + str(loss) +
                     ' serr:' + str(serr) + 
                     ' uerr:' + str(uerr) + 
-                    ' train_acc:' + str(train_acc) +
-                    ' saving model to ' + self.save_path)
+                    ' train_acc:' + str(train_acc))
+        if self.counter%self.save_every_n_batch==0:
             self.saver.save(self.sess, self.save_path)
+            print 'model saved to ' + self.save_path
 
 def main():
     batch_size = 8
@@ -354,24 +374,28 @@ def main():
         x_dim=[32,32,3], 
         y_dim=100, 
         dims=[[8, 3, 3], 
-        [16, 3, 3], 
+        [8, 3, 3], 
         [8, 3, 3]], 
         print_every_n_batch = 100, 
+        save_every_n_batch = 10000,
         learning_rate = 0.01,
         batch_size=batch_size)
     
     #np.random.seed(8603)
-    #print net.run(np.random.uniform(0, 1, [8, 32, 32, 3]))
+    #print net.predict_label(np.random.uniform(0, 1, [8, 32, 32, 3]))
     '''t_beg = time.clock()
     for i in xrange(1000):
         x, y = ds.train_batch()
-        print 'expected: '+ str(y) + ' predicted: ' + str(net.run(x))
+        print 'expected: '+ str(y) + ' predicted: ' + str(net.predict_label(x))
     t_end = time.clock()
     print str(batch_size*1000.0/(t_end-t_beg)) + ' FPS.'
     '''
     net.save('../model/')
-    for i in xrange(1000):
+    for i in xrange(62500000): # 1000 epoch
         x, y = ds.train_batch()
         net.train(x, y)
+        
+    net.finish()
+    
 main()
 
