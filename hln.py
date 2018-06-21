@@ -138,7 +138,7 @@ def normalized_soft_loss(y, labels, name):
     reward = onehot_truth*(1 - y)
     with tf.control_dependencies([stop_grad_op]):
         punishment = onehot * y
-    return tf.nn.l2_loss(reward + punishment, name=name)
+    return tf.reduce_mean(tf.square(reward + punishment), name=name)
 
 def normalized_relu_activation(x):
     assert(len(x.shape)==4)
