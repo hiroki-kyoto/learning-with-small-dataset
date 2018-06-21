@@ -373,8 +373,10 @@ def main():
     net = HybridLearningNet(
         x_dim=[32,32,3], 
         y_dim=100, 
-        dims=[[8, 3, 3], 
-        [8, 3, 3], 
+        dims=[[8, 3, 3],
+        [16,3,3],
+        [32,3,3],
+        [16,3,3], 
         [8, 3, 3]], 
         print_every_n_batch = 100, 
         save_every_n_batch = 10000,
