@@ -17,14 +17,27 @@ import time
 from dataset import *
 
 ######## REMOVE MODULE IN AND OUT ##############
-USE_SPARSITY_REGULARIZER = 1
-USE_NORM_REGULARIZER = 1
-USE_CORRELATION_REGULARIZER = 1
-USE_SHAKE_EVEN = 1
+USE_SPARSITY_REGULARIZER = 0
+USE_NORM_REGULARIZER = 0
+USE_CORRELATION_REGULARIZER = 0
+USE_SHAKE_EVEN = 0
 USE_SOFT_LOSS = 1
 USE_HYBRID_LEARNING = 1
-USE_DIFF_MAJOR_LOSS = 1
+USE_DIFF_MAJOR_LOSS = 0
 ################################################
+
+def zero_op():
+    return tf.constant(0, tf.float32)
+
+def mean_square(x):
+    return tf.reduce_mean(tf.square(x))
+
+def mean_entropy(x):
+    return tf.reduce_mean(
+        tf.nn.sparse_softmax_cross_entropy_with_logits(
+            labels=self.groundtruth_labels,
+            logits=self.y,
+            name='serr'))
 
 def sparsity_regularizer(x):
     if USE_SPARSITY_REGULARIZER:
@@ -32,19 +45,19 @@ def sparsity_regularizer(x):
         sum = tf.reduce_sum(x, axis=3)
         return tf.reduce_mean(sum - max)
     else:
-        return 0
+        return zero_op() 
 
 def norm_regularizer(x):
     if USE_NORM_REGULARIZER:
-        return tf.reduce_mean(tf.square(x))
+        return mean_square(x)
     else:
-        return 0
+        return zero_op()
 
 def L1_norm_regularizer(x):
     if USE_NORM_REGULARIZER:    
         return tf.reduce_mean(tf.abs(x))
     else:
-        return 0
+        return zero_op()
 
 def correlation_regularizer(x):
     if USE_CORRELATION_REGULARIZER:
@@ -58,7 +71,7 @@ def correlation_regularizer(x):
         r = tf.matmul(x_std, w_std)
         return tf.reduce_mean(tf.abs(tf.reduce_sum(x_std * r, axis=[0])))
     else:
-        return 0
+        return zero_op()
 
 def mixed_kernel_regularizer(x):
     w = tf.random_uniform([1])
@@ -156,7 +169,7 @@ def diff_major_loss(recon_x, x):
     x = tf.reshape(x, [_shape[0],_shape[1]*_shape[2], _shape[3]])
     recon_x = min_max_normalize(tf.reduce_sum(recon_x*w, axis=2))
     x = min_max_normalize(tf.reduce_sum(x*w, axis=2))
-    return norm_regularizer(x-recon_x)
+    return tf.reduce_mean(tf.square(x-recon_x))
     
 class HybridLearningNet(object):
     def __init__(
@@ -242,7 +255,7 @@ class HybridLearningNet(object):
             if USE_SHAKE_EVEN:
                 self.shake_coef = tf.random_uniform([len(dims)])
             else:
-                self.shake_coef = np.ones([len(dims)])
+                self.shake_coef = np.ones([len(dims)])*0.5
             for i in xrange(len(dims)-1):
                 i = len(dims) - i - 2
                 assert(len(dims[i])==3) # num_filters, kernel_size, dilated_rate
@@ -270,7 +283,8 @@ class HybridLearningNet(object):
                     self.x.shape[3],
                     dims[0][1],
                     dims[0][2],
-                    normalized_relu_activation)
+                    tf.nn.relu)
+                    #normalized_relu_activation)
             assert(self.recon_x.shape.as_list()==self.x.shape)
             # collect regularizers
             regs = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
@@ -289,7 +303,7 @@ class HybridLearningNet(object):
                     name='serr')
             else:
                 # use cross entropy loss
-                self.ops['serr'] = tf.nn.sparse_softmax_cross_entropy_with_logits(
+                self.ops['serr'] = mean_xentropy(
                     labels=self.groundtruth_labels,
                     logits=self.y,
                     name='serr')
@@ -303,7 +317,7 @@ class HybridLearningNet(object):
                 if USE_DIFF_MAJOR_LOSS:
                     self.ops['uerr'] = diff_major_loss(self.recon_x, self.x)
                 else:
-                    self.ops['uerr'] = norm_regularizer(self.recon_x - self.x)
+                    self.ops['uerr'] = mean_square(self.recon_x - self.x)
                 self.ops['loss'] += self.ops['uerr']
             # build optimizer for model
             self.ops['opt'] = tf.train.GradientDescentOptimizer(learning_rate)
@@ -323,7 +337,7 @@ class HybridLearningNet(object):
             self.saver.restore(self.sess, path)
             
     def finish(self):
-        self.saver.save(self.sess, self.save_path)
+        #self.saver.save(self.sess, self.save_path)
         self.sess.close()
 
     def predict_label(self, x):
@@ -347,13 +361,15 @@ class HybridLearningNet(object):
                     self.ops['train_acc']], 
                 feed_dict={self.x:x, self.groundtruth_labels:y})
         else:
-            _, loss, uerr, train_acc = self.sess.run(
+            _, loss, uerr = self.sess.run(
                 [self.ops['opt'], 
                     self.ops['loss'],
-                    self.ops['uerr'], 
-                    self.ops['train_acc']], 
-                feed_dict={self.x:x, self.groundtruth_labels:0, self.ops['switch']:0})
+                    self.ops['uerr']], 
+                feed_dict={self.x:x, 
+                    self.groundtruth_labels:np.zeros([self.batch_size]), 
+                    self.ops['switch']:0})
             serr = None
+            train_acc = None
         if self.counter%self.print_every_n_batch==0:
             print('#' + str(self.counter) + 
                     ' loss:' + str(loss) +
@@ -363,41 +379,4 @@ class HybridLearningNet(object):
         if self.counter%self.save_every_n_batch==0:
             self.saver.save(self.sess, self.save_path)
             print 'model saved to ' + self.save_path
-
-def main():
-    batch_size = 8
-    ds = Dataset()
-    #ds.load(CIFAR10, '../cifar-10-batches-py/')
-    ds.load(CIFAR100, '../cifar-100-python/')
-    ds.set_batch_size(batch_size)
-    net = HybridLearningNet(
-        x_dim=[32,32,3], 
-        y_dim=100, 
-        dims=[[8, 3, 3],
-        [16,3,3],
-        [32,3,3],
-        [16,3,3], 
-        [8, 3, 3]], 
-        print_every_n_batch = 100, 
-        save_every_n_batch = 10000,
-        learning_rate = 0.01,
-        batch_size=batch_size)
-    
-    #np.random.seed(8603)
-    #print net.predict_label(np.random.uniform(0, 1, [8, 32, 32, 3]))
-    '''t_beg = time.clock()
-    for i in xrange(1000):
-        x, y = ds.train_batch()
-        print 'expected: '+ str(y) + ' predicted: ' + str(net.predict_label(x))
-    t_end = time.clock()
-    print str(batch_size*1000.0/(t_end-t_beg)) + ' FPS.'
-    '''
-    net.save('../model/')
-    for i in xrange(62500000): # 1000 epoch
-        x, y = ds.train_batch()
-        net.train(x, y)
-        
-    net.finish()
-    
-main()
 
