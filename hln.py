@@ -21,8 +21,8 @@ USE_SPARSITY_REGULARIZER = 0
 USE_NORM_REGULARIZER = 0
 USE_CORRELATION_REGULARIZER = 0
 USE_SHAKE_EVEN = 0
-USE_SOFT_LOSS = 1
-USE_HYBRID_LEARNING = 1
+USE_SOFT_LOSS = 0
+USE_HYBRID_LEARNING = 0
 USE_DIFF_MAJOR_LOSS = 0
 ################################################
 
@@ -32,12 +32,12 @@ def zero_op():
 def mean_square(x):
     return tf.reduce_mean(tf.square(x))
 
-def mean_entropy(x):
+def mean_xentropy(labels, logits, name):
     return tf.reduce_mean(
         tf.nn.sparse_softmax_cross_entropy_with_logits(
-            labels=self.groundtruth_labels,
-            logits=self.y,
-            name='serr'))
+            labels=labels,
+            logits=logits,
+            name=name))
 
 def sparsity_regularizer(x):
     if USE_SPARSITY_REGULARIZER:
@@ -45,7 +45,7 @@ def sparsity_regularizer(x):
         sum = tf.reduce_sum(x, axis=3)
         return tf.reduce_mean(sum - max)
     else:
-        return zero_op() 
+        return zero_op()
 
 def norm_regularizer(x):
     if USE_NORM_REGULARIZER:
@@ -117,7 +117,7 @@ def tf_build_generative_layer(inputs, filters, ksizes, rates, activation):
         bias_initializer=tf.zeros_initializer(),
         kernel_regularizer=mixed_kernel_regularizer,
         bias_regularizer=norm_regularizer,
-        activity_regularizer=sparsity_regularizer,
+        activity_regularizer=None,
         kernel_constraint=None,
         bias_constraint=None,
         trainable=True,
@@ -290,11 +290,11 @@ class HybridLearningNet(object):
             regs = tf.get_collection(tf.GraphKeys.REGULARIZATION_LOSSES)
             self.ops['loss'] = tf.constant(0, tf.float32)
             if USE_SHAKE_EVEN:
-                reg_w = tf.random_uniform([len(regs)])*0.5
+                reg_w = tf.random_uniform([len(regs)])*0.001
             else:
-                reg_w = np.ones([len(regs)])
+                reg_w = np.ones([len(regs)])*0.5
             for i in xrange(len(regs)):
-                    self.ops['loss'] += regs[i]*reg_w[i]
+                self.ops['loss'] += regs[i]*reg_w[i]
             # obtain supervised loss
             if USE_SOFT_LOSS:
                 self.ops['serr'] = normalized_soft_loss(
@@ -351,7 +351,25 @@ class HybridLearningNet(object):
     def train(self, x, y=[]):
         assert(x.shape==self.x.shape)
         self.counter += 1
-        if len(y)>0:
+        if not USE_HYBRID_LEARNING:
+            if len(y)==0:
+                print 'info: no feedback given, training rejected!'
+                serr = None
+                uerr = 0
+                train_acc = None
+                loss = uerr
+            else:
+                assert(y.shape==self.groundtruth_labels.shape)
+                _, loss, serr, train_acc = self.sess.run(
+                    [
+                        self.ops['opt'], 
+                        self.ops['loss'],
+                        self.ops['serr'], 
+                        self.ops['train_acc']
+                    ], 
+                    feed_dict={self.x:x, self.groundtruth_labels:y})
+                uerr = None
+        elif len(y)>0:
             assert(y.shape==self.groundtruth_labels.shape)
             _, loss, serr, uerr, train_acc = self.sess.run(
                 [self.ops['opt'], 
@@ -379,4 +397,5 @@ class HybridLearningNet(object):
         if self.counter%self.save_every_n_batch==0:
             self.saver.save(self.sess, self.save_path)
             print 'model saved to ' + self.save_path
+        return loss, serr, uerr, train_acc
 

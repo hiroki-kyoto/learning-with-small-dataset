@@ -37,15 +37,18 @@ def main():
     net.restore('../model/')
     
     for i in xrange(1): # 1000 epoch
-        x, _ = ds.train_batch()
-        r_x = net.reconstruct_image(x)
-        print np.mean(r_x[0,:,:,0])
-        print np.mean(r_x[0,:,:,1])
-        print np.mean(r_x[0,:,:,2])
-        plt.imshow(x[0])
+        x, _ = ds.test()
+        ims = np.array([x[np.random.randint(len(x))]])
+        r_x = net.reconstruct_image(ims)
+        plt.imshow(ims[0])
         plt.figure()
         plt.imshow(r_x[0])
+        for j in xrange(10):
+            plt.figure()
+            r_x = net.reconstruct_image(ims)
+            plt.imshow(r_x[0])
         plt.show()
+        
     net.finish()
     
 main()
